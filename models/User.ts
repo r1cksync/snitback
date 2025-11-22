@@ -36,7 +36,8 @@ const UserSchema = new Schema<IUser>(
   }
 );
 
-UserSchema.index({ email: 1 });
+// Remove the duplicate index line
+// UserSchema.index({ email: 1 }); // <-- Remove this
 
 const User: Model<IUser> = mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
 
