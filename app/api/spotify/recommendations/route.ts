@@ -48,114 +48,62 @@ async function getValidAccessToken(user: any) {
 // POST /api/spotify/recommendations - Get AI-powered music recommendations
 export async function POST(req: NextRequest) {
   try {
+    console.log('=== Recommendations Route Called ===');
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.email) {
+      console.log('No session found');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
+    console.log('User email:', session.user.email);
     await connectDB();
     const user = await User.findOne({ email: session.user.email });
 
     if (!user) {
+      console.log('User not found in database');
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
       );
     }
 
+    console.log('User found, getting access token...');
     const accessToken = await getValidAccessToken(user);
     const body = await req.json();
-    const { mood, activity, energyLevel, focus } = body;
+    console.log('Request body:', body);
+    const { mood, activity, energyLevel, focus, userMessage, previousSongs, playlistLength = 12 } = body;
 
-    // Define recommendation parameters based on user needs
-    let targetEnergy = 0.5;
-    let targetValence = 0.5;
-    let targetTempo = 120;
-    let genres: string[] = [];
-
+    // Build context for AI
+    let aiContext = '';
     if (focus === 'deep-work') {
-      targetEnergy = 0.4;
-      targetValence = 0.5;
-      targetTempo = 90;
-      genres = ['ambient', 'classical', 'study', 'chill', 'instrumental'];
+      aiContext = 'The user needs music for deep work and maximum concentration. Suggest calm, ambient, instrumental tracks with no lyrics or minimal vocals.';
     } else if (focus === 'creative') {
-      targetEnergy = 0.6;
-      targetValence = 0.7;
-      targetTempo = 110;
-      genres = ['indie', 'electronic', 'jazz', 'alternative'];
+      aiContext = 'The user needs music for creative work. Suggest inspiring, indie, jazz, or alternative tracks that stimulate creativity.';
     } else if (focus === 'energetic') {
-      targetEnergy = 0.8;
-      targetValence = 0.8;
-      targetTempo = 140;
-      genres = ['pop', 'rock', 'edm', 'hip-hop'];
+      aiContext = 'The user needs high-energy music for active work. Suggest upbeat, motivating tracks from pop, rock, EDM, or hip-hop.';
     } else if (focus === 'relaxation') {
-      targetEnergy = 0.3;
-      targetValence = 0.6;
-      targetTempo = 80;
-      genres = ['ambient', 'chill', 'meditation', 'acoustic'];
+      aiContext = 'The user needs relaxing music for breaks. Suggest calm, soothing tracks for meditation and relaxation.';
+    } else {
+      aiContext = `The user needs music for: ${mood || activity || 'general listening'}`;
     }
 
-    // Get user's top tracks for seed
-    const topTracksResponse = await fetch(
-      'https://api.spotify.com/v1/me/top/tracks?limit=5',
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    let seedTracks: string[] = [];
-    if (topTracksResponse.ok) {
-      const topTracks = await topTracksResponse.json();
-      seedTracks = topTracks.items.slice(0, 2).map((track: any) => track.id);
+    // Add previous songs context if this is a refinement
+    if (previousSongs && previousSongs.length > 0) {
+      aiContext += `\n\nPrevious recommendations:\n${previousSongs.join('\n')}`;
     }
 
-    // Build recommendation query
-    const params = new URLSearchParams({
-      limit: '20',
-      target_energy: targetEnergy.toString(),
-      target_valence: targetValence.toString(),
-      target_tempo: targetTempo.toString(),
-    });
-
-    if (seedTracks.length > 0) {
-      params.append('seed_tracks', seedTracks.join(','));
+    // Add user's custom message if provided
+    if (userMessage) {
+      aiContext += `\n\nUser's specific request: ${userMessage}`;
     }
 
-    if (genres.length > 0) {
-      params.append('seed_genres', genres.slice(0, 3).join(','));
-    }
-
-    const recommendationsResponse = await fetch(
-      `https://api.spotify.com/v1/recommendations?${params.toString()}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!recommendationsResponse.ok) {
-      const error = await recommendationsResponse.text();
-      console.error('Spotify recommendations error:', error);
-      return NextResponse.json(
-        { error: 'Failed to get recommendations' },
-        { status: recommendationsResponse.status }
-      );
-    }
-
-    const recommendations = await recommendationsResponse.json();
-
-    // Generate AI explanation using Groq
-    const tracksList = recommendations.tracks.slice(0, 5).map((track: any) => 
-      `${track.name} by ${track.artists.map((a: any) => a.name).join(', ')}`
-    ).join('\n');
-
+    // Get song recommendations from Groq (ask for 50% more to account for songs not found)
+    const requestCount = Math.ceil(playlistLength * 1.5);
+    console.log('Asking Groq for song recommendations...');
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -163,15 +111,106 @@ export async function POST(req: NextRequest) {
         'Authorization': `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'system',
-            content: 'You are a music recommendation assistant. Explain why these songs are suitable for the user\'s focus needs.',
+            content: `You are a music recommendation expert. You must suggest EXACTLY ${requestCount} songs with their artists. Format each song as "Song Name by Artist Name" on separate lines. IMPORTANT: Only provide real, existing songs that can be found on Spotify. Do NOT make up song names. Only provide the ${requestCount} song titles, nothing else - no numbering, no explanations, no extra text.`,
           },
           {
             role: 'user',
-            content: `User needs music for: ${focus || activity || mood}\nRecommended tracks:\n${tracksList}\n\nBriefly explain (2-3 sentences) why these recommendations suit their needs.`,
+            content: aiContext,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
+
+    if (!groqResponse.ok) {
+      const error = await groqResponse.text();
+      console.error('Groq API error:', error);
+      return NextResponse.json(
+        { error: 'Failed to generate recommendations' },
+        { status: groqResponse.status }
+      );
+    }
+
+    const groqData = await groqResponse.json();
+    const aiSuggestions = groqData.choices[0]?.message?.content || '';
+    console.log('AI Suggestions (first 500 chars):', aiSuggestions.substring(0, 500));
+
+    // Parse song suggestions
+    const songLines = aiSuggestions.split('\n').filter((line: string) => line.trim());
+    console.log(`AI suggested ${songLines.length} songs, we need ${playlistLength}`);
+    const tracks: any[] = [];
+
+    // Search for each song on Spotify
+    console.log('Searching for songs on Spotify...');
+    console.log('Target number of tracks:', playlistLength);
+    for (const songLine of songLines) {
+      if (tracks.length >= playlistLength) break; // Stop when we have enough
+      
+      try {
+        // Clean up the line (remove numbers, bullets, etc)
+        const cleanLine = songLine.replace(/^\d+[\.\)]\s*/, '').replace(/^[-*]\s*/, '').trim();
+        if (!cleanLine || cleanLine.length < 3) continue;
+
+        console.log('Searching for:', cleanLine);
+        
+        // Search on Spotify with better matching
+        const searchResponse = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanLine)}&type=track&limit=3`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          if (searchData.tracks?.items?.[0]) {
+            const track = searchData.tracks.items[0];
+            console.log('Found:', track.name, 'by', track.artists.map((a: any) => a.name).join(', '));
+            tracks.push(track);
+          } else {
+            console.log('No match found for:', cleanLine);
+          }
+        }
+      } catch (error) {
+        console.error('Error searching for song:', songLine, error);
+      }
+    }
+
+    console.log('Found tracks:', tracks.length, '/', playlistLength);
+    
+    // If we didn't get enough tracks, warn but continue
+    if (tracks.length < playlistLength) {
+      console.warn(`Only found ${tracks.length} tracks out of ${playlistLength} requested`);
+    }
+    
+    // Trim to exact length requested
+    const finalTracks = tracks.slice(0, playlistLength);
+    console.log('Returning', finalTracks.length, 'tracks to frontend');
+
+    // Generate explanation
+    const explanationResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a music curator. Explain briefly (2-3 sentences) why this playlist suits the user\'s needs.',
+          },
+          {
+            role: 'user',
+            content: `Context: ${aiContext}\n\nPlaylist:\n${finalTracks.map(t => `${t.name} by ${t.artists.map((a: any) => a.name).join(', ')}`).join('\n')}\n\nExplain why this playlist works for them.`,
           },
         ],
         temperature: 0.7,
@@ -180,15 +219,15 @@ export async function POST(req: NextRequest) {
     });
 
     let explanation = 'These tracks are curated to match your current focus needs.';
-    if (groqResponse.ok) {
-      const groqData = await groqResponse.json();
-      explanation = groqData.choices[0]?.message?.content || explanation;
+    if (explanationResponse.ok) {
+      const explData = await explanationResponse.json();
+      explanation = explData.choices[0]?.message?.content || explanation;
     }
 
     return NextResponse.json({
-      tracks: recommendations.tracks,
+      tracks: finalTracks,
       explanation,
-      parameters: { targetEnergy, targetValence, targetTempo, genres },
+      aiSuggestions,
     });
   } catch (error: any) {
     console.error('Error getting recommendations:', error);

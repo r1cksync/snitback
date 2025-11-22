@@ -20,20 +20,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const scopes = [
-      'user-read-private',
-      'user-read-email',
-      'user-top-read',
-      'user-read-recently-played',
-      'user-read-playback-state',
-      'user-modify-playback-state',
-      'user-read-currently-playing',
-      'streaming',
-      'playlist-read-private',
-      'playlist-read-collaborative',
-    ].join(' ');
-
-    const params = new URLSearchParams({
+  const scopes = [
+    'user-read-private',
+    'user-read-email',
+    'user-top-read',
+    'user-read-recently-played',
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-currently-playing',
+    'streaming',
+    'playlist-read-private',
+    'playlist-read-collaborative',
+    'playlist-modify-private',
+    'playlist-modify-public',
+  ].join(' ');    const params = new URLSearchParams({
       response_type: 'code',
       client_id: SPOTIFY_CLIENT_ID!,
       scope: scopes,

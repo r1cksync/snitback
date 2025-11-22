@@ -6,6 +6,7 @@ export interface IFlowSession extends Document {
   endTime?: Date;
   duration: number; // in seconds
   qualityScore: number; // 0-100
+  focusScore: number; // 0-100 (alias for qualityScore for compatibility)
   triggers: string[];
   breakers: string[];
   metrics: {
@@ -13,6 +14,14 @@ export interface IFlowSession extends Document {
     tabSwitches: number;
     mouseActivity: number;
     fatigueLevel: number;
+  };
+  language?: string; // Programming language
+  distractions: number; // Number of distraction events
+  codeMetrics?: {
+    linesOfCode: number;
+    charactersTyped: number;
+    complexityScore: number;
+    errorsFixed: number;
   };
   interventions: string[];
   notes?: string;
@@ -45,6 +54,12 @@ const FlowSessionSchema = new Schema<IFlowSession>(
       max: 100,
       default: 0,
     },
+    focusScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
     triggers: [String],
     breakers: [String],
     metrics: {
@@ -52,6 +67,20 @@ const FlowSessionSchema = new Schema<IFlowSession>(
       tabSwitches: { type: Number, default: 0 },
       mouseActivity: { type: Number, default: 0 },
       fatigueLevel: { type: Number, default: 0 },
+    },
+    language: {
+      type: String,
+      default: 'javascript',
+    },
+    distractions: {
+      type: Number,
+      default: 0,
+    },
+    codeMetrics: {
+      linesOfCode: { type: Number, default: 0 },
+      charactersTyped: { type: Number, default: 0 },
+      complexityScore: { type: Number, default: 0 },
+      errorsFixed: { type: Number, default: 0 },
     },
     interventions: [String],
     notes: String,
