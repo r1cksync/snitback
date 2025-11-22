@@ -38,31 +38,31 @@ export async function GET(req: NextRequest) {
 
     // Calculate analytics
     const totalSessions = sessions.length;
-    const totalDuration = sessions.reduce((sum, s) => sum + s.duration, 0);
+    const totalDuration = sessions.reduce((sum: number, s: any) => sum + s.duration, 0);
     const avgDuration = totalSessions > 0 ? totalDuration / totalSessions : 0;
     const avgQualityScore = totalSessions > 0 
-      ? sessions.reduce((sum, s) => sum + s.qualityScore, 0) / totalSessions 
+      ? sessions.reduce((sum: number, s: any) => sum + s.qualityScore, 0) / totalSessions 
       : 0;
 
     // Flow triggers analysis
     const triggersMap = new Map<string, number>();
-    sessions.forEach(s => {
-      s.triggers.forEach(t => {
+    sessions.forEach((s: any) => {
+      s.triggers.forEach((t: string) => {
         triggersMap.set(t, (triggersMap.get(t) || 0) + 1);
       });
     });
 
     // Flow breakers analysis
     const breakersMap = new Map<string, number>();
-    sessions.forEach(s => {
-      s.breakers.forEach(b => {
+    sessions.forEach((s: any) => {
+      s.breakers.forEach((b: string) => {
         breakersMap.set(b, (breakersMap.get(b) || 0) + 1);
       });
     });
 
     // Best time analysis (group by hour)
     const hourMap = new Map<number, { count: number; totalQuality: number }>();
-    sessions.forEach(s => {
+    sessions.forEach((s: any) => {
       const hour = new Date(s.startTime).getHours();
       const existing = hourMap.get(hour) || { count: 0, totalQuality: 0 };
       hourMap.set(hour, {
@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
         .sort((a, b) => b.count - a.count)
         .slice(0, 5),
       bestHours,
-      sessionsOverTime: sessions.map(s => ({
+      sessionsOverTime: sessions.map((s: any) => ({
         date: s.startTime,
         duration: s.duration,
         quality: s.qualityScore,

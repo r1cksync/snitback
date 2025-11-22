@@ -60,7 +60,7 @@ Provide a brief analysis of the flow state quality and suggestions for improveme
   ];
 
   const completion = await generateChatCompletion({ messages, maxTokens: 512 });
-  return completion.choices[0]?.message?.content || 'No analysis available';
+  return (completion as any).choices[0]?.message?.content || 'No analysis available';
 }
 
 export async function generateFlowCoachResponse(userQuery: string, context?: string): Promise<string> {
@@ -78,5 +78,5 @@ export async function generateFlowCoachResponse(userQuery: string, context?: str
   ];
 
   const completion = await generateChatCompletion({ messages, maxTokens: 512 });
-  return completion.choices[0]?.message?.content || 'I apologize, I cannot help with that right now.';
+  return (completion as any).choices[0]?.message?.content || 'I apologize, I cannot help with that right now.';
 }

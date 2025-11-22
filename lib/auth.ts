@@ -45,7 +45,6 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: 'http://localhost:3000/auth/signin',
-    signUp: 'http://localhost:3000/auth/signup',
   },
   callbacks: {
     async jwt({ token, user }) {
@@ -56,7 +55,7 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
+        (session.user as any).id = token.id as string;
       }
       return session;
     },
