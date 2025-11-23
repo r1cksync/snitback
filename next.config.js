@@ -2,6 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  experimental: {
+    serverComponentsExternalPackages: ['whatsapp-web.js', 'qrcode']
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = [...config.externals, 'whatsapp-web.js', 'qrcode'];
+    }
+    return config;
+  },
   env: {
     MONGODB_URI: process.env.MONGODB_URI,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL,

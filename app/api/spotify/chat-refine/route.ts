@@ -3,42 +3,29 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { refreshSpotifyTokenSafe, spotifyApiCall, createSpotifyFallbackResponse } from '@/lib/spotify-utils';
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
-// Helper function to refresh token if needed
 async function getValidAccessToken(user: any): Promise<string> {
   const now = new Date();
   const tokenExpiry = new Date(user.spotifyTokenExpiry);
 
   if (tokenExpiry <= now) {
-    // Token expired, refresh it
-    const refreshResponse = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${Buffer.from(
-          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-        ).toString('base64')}`,
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: user.spotifyRefreshToken,
-      }),
-    });
-
-    if (!refreshResponse.ok) {
-      throw new Error('Failed to refresh Spotify token');
-    }
-
-    const data = await refreshResponse.json();
-    const expiryDate = new Date(now.getTime() + data.expires_in * 1000);
-
-    user.spotifyAccessToken = data.access_token;
+    const tokens = await refreshSpotifyTokenSafe(
+      user.spotifyRefreshToken,
+      SPOTIFY_CLIENT_ID!,
+      SPOTIFY_CLIENT_SECRET!
+    );
+    
+    const expiryDate = new Date(now.getTime() + tokens.expires_in * 1000);
+    user.spotifyAccessToken = tokens.access_token;
     user.spotifyTokenExpiry = expiryDate;
     await user.save();
 
-    return data.access_token;
+    return tokens.access_token;
   }
 
   return user.spotifyAccessToken;
@@ -129,17 +116,12 @@ export async function POST(req: NextRequest) {
 
         console.log('Searching for:', cleanLine);
 
-        const searchResponse = await fetch(
-          `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanLine)}&type=track&limit=3`,
-          {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          }
-        );
+        try {
+          const searchData = await spotifyApiCall(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanLine)}&type=track&limit=3`,
+            accessToken
+          );
 
-        if (searchResponse.ok) {
-          const searchData = await searchResponse.json();
           if (searchData.tracks?.items?.[0]) {
             const track = searchData.tracks.items[0];
             console.log('Found:', track.name, 'by', track.artists.map((a: any) => a.name).join(', '));
@@ -147,6 +129,8 @@ export async function POST(req: NextRequest) {
           } else {
             console.log('No match found for:', cleanLine);
           }
+        } catch (searchError) {
+          console.error('Error searching for song:', cleanLine, 'Error:', searchError.message);
         }
       } catch (error) {
         console.error('Error searching for song:', songLine, error);
@@ -196,9 +180,18 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error refining recommendations:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to refine recommendations' },
-      { status: 500 }
+    
+    // Return fallback data instead of error
+    const fallbackData = createSpotifyFallbackResponse(
+      'Unable to refine music recommendations at the moment.',
+      {
+        tracks: [],
+        explanation: 'Music refinement temporarily unavailable.',
+        aiResponse: '',
+        error: error.message
+      }
     );
+    
+    return NextResponse.json(fallbackData);
   }
 }

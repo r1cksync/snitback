@@ -3,26 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { refreshSpotifyTokenSafe, spotifyApiCall, createSpotifyFallbackResponse } from '@/lib/spotify-utils';
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-
-async function refreshSpotifyToken(refreshToken: string) {
-  const response = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + Buffer.from(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET).toString('base64'),
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }),
-  });
-
-  return await response.json();
-}
 
 async function getValidAccessToken(user: any) {
   if (!user.spotifyAccessToken || !user.spotifyRefreshToken) {
@@ -30,7 +15,11 @@ async function getValidAccessToken(user: any) {
   }
 
   if (user.spotifyTokenExpiry && new Date() >= new Date(user.spotifyTokenExpiry)) {
-    const tokens = await refreshSpotifyToken(user.spotifyRefreshToken);
+    const tokens = await refreshSpotifyTokenSafe(
+      user.spotifyRefreshToken,
+      SPOTIFY_CLIENT_ID!,
+      SPOTIFY_CLIENT_SECRET!
+    );
     
     await User.findByIdAndUpdate(user._id, {
       $set: {
@@ -158,32 +147,44 @@ export async function POST(req: NextRequest) {
 
         console.log('Searching for:', cleanLine);
         
-        // Search on Spotify with better matching
-        const searchResponse = await fetch(
-          `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanLine)}&type=track&limit=3`,
-          {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          }
-        );
+        // Search on Spotify with proper error handling
+        try {
+          const searchData = await spotifyApiCall(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanLine)}&type=track&limit=3`,
+            accessToken
+          );
 
-        if (searchResponse.ok) {
-          const searchData = await searchResponse.json();
-          if (searchData.tracks?.items?.[0]) {
+          if (searchData.tracks && searchData.tracks.items && searchData.tracks.items.length > 0) {
             const track = searchData.tracks.items[0];
             console.log('Found:', track.name, 'by', track.artists.map((a: any) => a.name).join(', '));
             tracks.push(track);
           } else {
             console.log('No match found for:', cleanLine);
           }
+        } catch (searchError) {
+          console.error('Error searching for song:', cleanLine, 'Error:', searchError.message);
+          // Continue to next song instead of breaking
         }
       } catch (error) {
-        console.error('Error searching for song:', songLine, error);
+        console.error('Error processing song line:', songLine, error);
       }
     }
 
     console.log('Found tracks:', tracks.length, '/', playlistLength);
+    
+    // If we didn't find any tracks, return fallback data
+    if (tracks.length === 0) {
+      console.warn('No tracks found at all - returning fallback');
+      const fallbackData = createSpotifyFallbackResponse(
+        'Unable to find music tracks at the moment. Please try again later.',
+        {
+          tracks: [],
+          explanation: 'Music recommendations are temporarily unavailable.',
+          aiSuggestions: ''
+        }
+      );
+      return NextResponse.json(fallbackData);
+    }
     
     // If we didn't get enough tracks, warn but continue
     if (tracks.length < playlistLength) {
@@ -231,9 +232,18 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error getting recommendations:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to get recommendations' },
-      { status: 500 }
+    
+    // Return fallback data instead of error
+    const fallbackData = createSpotifyFallbackResponse(
+      'Unable to generate music recommendations at the moment. Please try again later.',
+      {
+        tracks: [],
+        explanation: 'Music recommendations are temporarily unavailable due to connectivity issues.',
+        aiSuggestions: '',
+        error: error.message
+      }
     );
+    
+    return NextResponse.json(fallbackData);
   }
 }
