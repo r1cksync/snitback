@@ -35,6 +35,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const body = await req.json();
 
+    // Sync focusScore and qualityScore
+    if (body.qualityScore !== undefined && body.focusScore === undefined) {
+      body.focusScore = body.qualityScore;
+    } else if (body.focusScore !== undefined && body.qualityScore === undefined) {
+      body.qualityScore = body.focusScore;
+    }
+
     await connectDB();
 
     const session = await FlowSession.findOneAndUpdate(

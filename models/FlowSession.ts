@@ -17,11 +17,22 @@ export interface IFlowSession extends Document {
   };
   language?: string; // Programming language
   distractions: number; // Number of distraction events
+  sessionType?: string; // 'code', 'whiteboard', 'reading', 'writing'
   codeMetrics?: {
     linesOfCode: number;
     charactersTyped: number;
     complexityScore: number;
     errorsFixed: number;
+  };
+  whiteboardMetrics?: {
+    totalStrokes: number;
+    shapesDrawn: number;
+    colorsUsed: number;
+    canvasCoverage: number; // percentage of canvas used
+    eraserUses: number;
+    toolSwitches: number;
+    averageStrokeSpeed: number;
+    creativityScore: number; // 0-100 based on diversity and complexity
   };
   interventions: string[];
   notes?: string;
@@ -76,11 +87,26 @@ const FlowSessionSchema = new Schema<IFlowSession>(
       type: Number,
       default: 0,
     },
+    sessionType: {
+      type: String,
+      enum: ['code', 'whiteboard', 'reading', 'writing', 'other'],
+      default: 'other',
+    },
     codeMetrics: {
       linesOfCode: { type: Number, default: 0 },
       charactersTyped: { type: Number, default: 0 },
       complexityScore: { type: Number, default: 0 },
       errorsFixed: { type: Number, default: 0 },
+    },
+    whiteboardMetrics: {
+      totalStrokes: { type: Number, default: 0 },
+      shapesDrawn: { type: Number, default: 0 },
+      colorsUsed: { type: Number, default: 0 },
+      canvasCoverage: { type: Number, default: 0 },
+      eraserUses: { type: Number, default: 0 },
+      toolSwitches: { type: Number, default: 0 },
+      averageStrokeSpeed: { type: Number, default: 0 },
+      creativityScore: { type: Number, default: 0 },
     },
     interventions: [String],
     notes: String,

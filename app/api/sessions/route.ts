@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
     if (!auth) return unauthorizedResponse();
 
     const body = await req.json();
-    const { startTime, endTime, duration, qualityScore, triggers, breakers, metrics, interventions, notes } = body;
+    const { 
+      startTime, endTime, duration, qualityScore, focusScore, triggers, breakers, 
+      metrics, interventions, notes, language, distractions, codeMetrics 
+    } = body;
 
     if (!startTime) {
       return errorResponse('startTime is required', 400);
@@ -43,12 +46,16 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
+    // Use focusScore if provided, otherwise use qualityScore, or default to 0
+    const score = focusScore ?? qualityScore ?? 0;
+
     const session = await FlowSession.create({
       userId: auth.userId,
       startTime,
       endTime,
       duration: duration || 0,
-      qualityScore: qualityScore || 0,
+      qualityScore: score,
+      focusScore: score,
       triggers: triggers || [],
       breakers: breakers || [],
       metrics: metrics || {
@@ -56,6 +63,14 @@ export async function POST(req: NextRequest) {
         tabSwitches: 0,
         mouseActivity: 0,
         fatigueLevel: 0,
+      },
+      language: language || 'javascript',
+      distractions: distractions ?? 0,
+      codeMetrics: codeMetrics || {
+        linesOfCode: 0,
+        charactersTyped: 0,
+        complexityScore: 0,
+        errorsFixed: 0,
       },
       interventions: interventions || [],
       notes,
